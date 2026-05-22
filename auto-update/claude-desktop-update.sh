@@ -14,7 +14,7 @@
 #
 set -euo pipefail
 
-REPO="${CLAUDE_DESKTOP_REPO:-pjordanandrsn/claude-desktop-debian}"
+REPO="${CLAUDE_DESKTOP_REPO:-pjordanandrsn/claude-desktop-asahi}"
 ARCH="${CLAUDE_DESKTOP_ARCH:-aarch64}"
 PKG="claude-desktop"
 API="https://api.github.com/repos/${REPO}/releases/latest"
