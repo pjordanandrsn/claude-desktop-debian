@@ -1,0 +1,93 @@
+name: Sync from upstream
+
+# Weekly merge of aaddrick/claude-desktop-debian into this (detached) repo so the
+# build patches stay current with new Claude Desktop releases. A clean merge is
+# pushed automatically (CI then re-validates the build); a conflict or a blocked
+# push opens a tracking issue and fails the run so you're notified.
+
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  # Share check-claude-version's group so the two never push to main at once.
+  group: main-branch-auto-update
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      UPSTREAM_URL: https://github.com/aaddrick/claude-desktop-debian.git
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Merge upstream/main
+        id: merge
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add upstream "$UPSTREAM_URL" 2>/dev/null \
+            || git remote set-url upstream "$UPSTREAM_URL"
+          git fetch --no-tags --quiet upstream main
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "result=current" >> "$GITHUB_OUTPUT"
+            echo "Already up to date with upstream."
+            exit 0
+          fi
+          if git merge --no-edit upstream/main; then
+            echo "result=merged" >> "$GITHUB_OUTPUT"
+          else
+            conflicts="$(git diff --name-only --diff-filter=U | tr '\n' ' ')"
+            git merge --abort || true
+            {
+              echo "result=conflict"
+              echo "conflicts=$conflicts"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push merged result
+        id: push
+        if: steps.merge.outputs.result == 'merged'
+        continue-on-error: true
+        run: git push origin HEAD:main
+
+      - name: Open tracking issue and fail
+        if: steps.merge.outputs.result == 'conflict' || steps.push.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGE_RESULT: ${{ steps.merge.outputs.result }}
+          CONFLICTS: ${{ steps.merge.outputs.conflicts }}
+        run: |
+          if [[ "$MERGE_RESULT" == "conflict" ]]; then
+            reason="merge conflict in: ${CONFLICTS:-unknown}"
+          else
+            reason="push blocked - GH_PAT likely needs 'Workflows: Read and write' (upstream changed a workflow file)"
+          fi
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          body="$(printf '%s\n\n%s\n\n%s\n%s\n%s\n%s\n%s\n%s\n\n%s\n' \
+            "Automated upstream sync needs a hand: ${reason}." \
+            "Resolve it locally:" \
+            '```bash' \
+            'git -C ~/claude-desktop-debian fetch upstream' \
+            'git -C ~/claude-desktop-debian merge upstream/main' \
+            '# fix conflicts (usually .github/workflows/ci.yml - re-apply the 3 github.repository guards)' \
+            'git -C ~/claude-desktop-debian push origin main' \
+            '```' \
+            "Triggered by ${run_url}")"
+          existing="$(gh issue list --state open --search 'Upstream sync needs a hand in:title' --json number --jq '.[0].number // empty')"
+          if [[ -n "$existing" ]]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "Upstream sync needs a hand" --body "$body"
+          fi
+          exit 1
