@@ -21,6 +21,9 @@ permissions:
 
 jobs:
   ping:
+    # Fork: skip — validates the canonical pkg.claude-desktop-debian.dev chain
+    # (and auto-opens a tracking issue on failure), which doesn't apply to forks.
+    if: github.repository == 'aaddrick/claude-desktop-debian'
     strategy:
       fail-fast: false
       matrix:

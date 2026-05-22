@@ -13,6 +13,8 @@ concurrency:
 
 jobs:
   update-flake-lock:
+    # Fork: skip — needs GH_PAT and would open nix flake-lock PRs on the fork.
+    if: github.repository == 'aaddrick/claude-desktop-debian'
     runs-on: ubuntu-latest
 
     steps:
