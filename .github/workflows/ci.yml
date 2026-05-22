@@ -797,7 +797,8 @@ jobs:
 
   update-aur-repo:
     name: Update AUR Package
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Fork note: see "Update APT Repository" above — skip on forks (no AUR SSH key).
+    if: startsWith(github.ref, 'refs/tags/v') && github.repository == 'aaddrick/claude-desktop-debian'
     needs: [release]
     runs-on: ubuntu-latest
 
