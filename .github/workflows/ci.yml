@@ -400,7 +400,10 @@ jobs:
 
   update-apt-repo:
     name: Update APT Repository
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Fork note: only the canonical repo has gh-pages + the signing key +
+    # the Cloudflare worker. Skip on forks; the `release` job above still
+    # publishes packages to GitHub Releases.
+    if: startsWith(github.ref, 'refs/tags/v') && github.repository == 'aaddrick/claude-desktop-debian'
     needs: [release]
     runs-on: ubuntu-latest
     permissions:
@@ -573,7 +576,8 @@ jobs:
 
   update-dnf-repo:
     name: Update DNF Repository
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Fork note: see "Update APT Repository" above — skip on forks.
+    if: startsWith(github.ref, 'refs/tags/v') && github.repository == 'aaddrick/claude-desktop-debian'
     needs: [release, update-apt-repo]
     runs-on: ubuntu-latest
     permissions:
