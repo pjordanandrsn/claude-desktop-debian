@@ -1,0 +1,12 @@
+[Unit]
+Description=Update Claude Desktop from GitHub Releases
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/claude-desktop-update.sh
+Nice=10
+# Point at a different repo / arch if you like:
+# Environment=CLAUDE_DESKTOP_REPO=owner/name
+# Environment=CLAUDE_DESKTOP_ARCH=x86_64

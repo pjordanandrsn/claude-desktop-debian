@@ -1,3 +1,15 @@
+> ## ⚡ Fast-cadence, auto-updating build (aarch64-first)
+>
+> This is a **fast-rebuild fork** of [`aaddrick/claude-desktop-debian`](https://github.com/aaddrick/claude-desktop-debian), tuned for **Fedora Asahi (Apple Silicon / `aarch64`)**:
+>
+> - 🕐 **Rebuilt within ~1 hour** of every new Anthropic release (upstream's own check runs daily).
+> - 🤖 Ships a drop-in **`systemd` auto-updater** so your machine stays current hands-free → [`auto-update/`](auto-update/).
+> - 📦 Same `.rpm` / `.deb` / `.AppImage` artifacts — grab them from [Releases](../../releases).
+>
+> All credit for the build system goes to [@aaddrick](https://github.com/aaddrick) and contributors. The original documentation follows.
+
+---
+
 # Claude Desktop for Linux
 
 This project provides build scripts to run Claude Desktop natively on Linux systems. It repackages the official Windows application for Linux distributions, producing `.deb` packages (Debian/Ubuntu), `.rpm` packages (Fedora/RHEL), distribution-agnostic AppImages, an [AUR package](https://aur.archlinux.org/packages/claude-desktop-appimage) for Arch Linux, and a Nix flake for NixOS.
