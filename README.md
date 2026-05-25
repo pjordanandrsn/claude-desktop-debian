@@ -16,6 +16,8 @@ This project provides build scripts to run Claude Desktop natively on Linux syst
 
 **Note:** This is an unofficial build script. For official support, please visit [Anthropic's website](https://www.anthropic.com). For issues with the build script or Linux implementation, please [open an issue](https://github.com/aaddrick/claude-desktop-debian/issues) in this repository.
 
+**Documentation:** Full docs at [`docs/index.md`](docs/index.md). Release history in [`CHANGELOG.md`](CHANGELOG.md). Contributing: [`CONTRIBUTING.md`](CONTRIBUTING.md). Security reports: [`SECURITY.md`](SECURITY.md).
+
 ---
 
 > **⚠️ APT migration notice (April 2026)**
@@ -147,7 +149,7 @@ Download the latest `.deb`, `.rpm`, or `.AppImage` from the [Releases page](http
 
 ### Building from Source
 
-See [docs/BUILDING.md](docs/BUILDING.md) for detailed build instructions.
+See [docs/building.md](docs/building.md) for detailed build instructions.
 
 ## Configuration
 
@@ -156,13 +158,13 @@ Model Context Protocol settings are stored in:
 ~/.config/Claude/claude_desktop_config.json
 ```
 
-For additional configuration options including environment variables and Wayland support, see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+For additional configuration options including environment variables and Wayland support, see [docs/configuration.md](docs/configuration.md).
 
 ## Troubleshooting
 
 Run `claude-desktop --doctor` for built-in diagnostics that check common issues (display server, sandbox permissions, MCP config, stale locks, and more). It also reports cowork mode readiness — which isolation backend will be used, and which dependencies (KVM, QEMU, vsock, socat, virtiofsd, bubblewrap) are installed or missing.
 
-For additional troubleshooting, uninstallation instructions, and log locations, see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
+For additional troubleshooting, uninstallation instructions, and log locations, see [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ## Acknowledgments
 
@@ -283,9 +285,15 @@ Special thanks to:
   - RPM `chrome-sandbox` SUID via `%attr(4755, ...)` instead of a `%post` chmod scriptlet so the bit survives `--noscripts` and layered images (#539)
   - `autoUpdater` no-op Proxy on Linux that defends against future feed activation, with a thenable allowlist masking `then`/`catch`/`finally`/`Symbol.toPrimitive`/`Symbol.iterator` to `undefined` (#567)
   - Failing loudly on `npm install node-pty` failures instead of silently shipping the upstream Windows binaries, plus auto-installing `gcc`/`g++`/`make`/`python3` on minimal build environments (#401)
+  - Silencing the RPM "File listed twice" warning on `chrome-sandbox` by moving `chmod 4755` into `%install`, with thorough investigation of four `%exclude`-based alternatives (#610)
+  - Cleaning upstream Windows binaries from node-pty before staging the Linux build, preventing PE32+ orphans in the packaged asar (#597)
 - **[Hayao0819](https://github.com/Hayao0819)** for diagnosing the upstream `titleBarStyle:""` → `titleBarStyle:"hiddenInset"` migration that broke the About window render on GNOME/X11 and contributing the `isPopupWindow()` match extension (#481, #489)
 - **[michelsfun](https://github.com/michelsfun)** for reporting the cowork `ENAMETOOLONG` failure on eCryptfs-encrypted home directories with detailed `--doctor` output that pinpointed the short-NAME_MAX filesystem as the cause (#590)
-- **[proffalken](https://github.com/proffalken)** for the LUKS-volume + `pam_mount` workaround documented in `TROUBLESHOOTING.md`, restoring cowork support on legacy eCryptfs-encrypted home directories (#590)
+- **[proffalken](https://github.com/proffalken)** for the LUKS-volume + `pam_mount` workaround documented in `docs/troubleshooting.md`, restoring cowork support on legacy eCryptfs-encrypted home directories (#590)
+- **[phelps-matthew](https://github.com/phelps-matthew)** for fixing `CLAUDE_QUIT_ON_CLOSE=1` to actively quit via `app.quit()` instead of relying on the bundled handler that hardcodes hide-to-tray on Linux, with thorough root cause analysis and alternatives evaluation (#624, #623)
+- **[dubreal](https://github.com/dubreal)** for `--password-store` keyring detection that probes D-Bus for kwallet6 / gnome-libsecret at startup, fixing session persistence on KDE Plasma and other desktops where Electron's `safeStorage` was unavailable (#611, #593)
+- **[JustinJLeopard](https://github.com/JustinJLeopard)** for detecting missing electron binaries after Node 24's `extract-zip` silently no-ops, with an `unzip` fallback that recovers from the `@electron/get` cache (#631, #584)
+- **[tkrag](https://github.com/tkrag)** for diagnosing and fixing the X11 window-raise-on-hover bug under sloppy/focus-follows-mouse WMs, tracing the upstream `webContents.focus()` → `_NET_ACTIVE_WINDOW` path through three iterations of review (#589, #416)
 
 ## Sponsorship
 

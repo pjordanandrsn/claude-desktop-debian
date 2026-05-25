@@ -81,6 +81,15 @@ const CLOSE_TO_TRAY = process.platform === 'linux'
   && process.env.CLAUDE_QUIT_ON_CLOSE !== '1';
 console.log(`[Frame Fix] Close-to-tray: ${CLOSE_TO_TRAY ? 'on' : 'off'}`);
 
+// Power save blocker behavior, controlled by CLAUDE_KEEP_AWAKE env var:
+//   unset / '1' - pass through with diagnostic logging
+//   '0'         - suppress powerSaveBlocker.start() calls entirely
+// Upstream's keepAwakeEnabled has no lifecycle management on Linux (the
+// darwin-only wake scheduler never runs), so the inhibitor fires at init
+// and never releases — preventing suspend and screensaver. See #605.
+const KEEP_AWAKE = process.env.CLAUDE_KEEP_AWAKE !== '0';
+console.log(`[Frame Fix] Keep awake: ${KEEP_AWAKE ? 'on (default)' : 'suppressed (CLAUDE_KEEP_AWAKE=0)'}`);
+
 // Detect if a window intends to be frameless (popup/Quick Entry/About).
 // Window kinds — see build-reference/app-extracted/.vite/build/index.js:
 //   Quick Entry:    titleBarStyle:"hidden",      frame:false  (caught early)
@@ -178,10 +187,7 @@ Module.prototype.require = function(id) {
             } else if (TITLEBAR_STYLE === 'native') {
               // Main window, native mode: force system frame.
               options.frame = true;
-              // Menu bar behavior depends on CLAUDE_MENU_BAR mode:
-              // 'auto' (default): hidden, Alt toggles
-              // 'visible'/'hidden': no Alt toggle
-              options.autoHideMenuBar = (MENU_BAR_MODE === 'auto');
+              options.autoHideMenuBar = false;
               delete options.titleBarStyle;
               delete options.titleBarOverlay;
               console.log(`[Frame Fix] Modified frame from ${originalFrame} to true`);
@@ -211,7 +217,7 @@ Module.prototype.require = function(id) {
               // CSS rule still applying within the framed
               // window's content area.
               options.frame = true;
-              options.autoHideMenuBar = (MENU_BAR_MODE === 'auto');
+              options.autoHideMenuBar = false;
               delete options.titleBarStyle;
               delete options.titleBarOverlay;
               console.log('[Frame Fix] Hybrid mode: native frame + in-app topbar shim');
@@ -245,6 +251,22 @@ Module.prototype.require = function(id) {
             if (MENU_BAR_MODE !== 'visible') {
               this.setMenuBarVisibility(false);
             }
+
+            // Track the most recent 'show' event timestamp on the
+            // window. Read by the webContents.focus() guard below to
+            // distinguish a genuine post-show activation (which must
+            // pass through to send _NET_ACTIVE_WINDOW and actually
+            // give the window WM focus) from a sloppy-focus
+            // reassertion (which is what we want to skip). Required
+            // because Electron's isFocused() returns stale-true after
+            // hide() on Cinnamon/KDE/Wayland — a freshly-restored
+            // window reports focused=true even though the WM never
+            // activated it, and skipping the focus() call leaves the
+            // window visible-but-inert until the user clicks it.
+            // See #416 review notes.
+            this._lastShownAt = 0;
+            this.on('show', () => { this._lastShownAt = Date.now(); });
+            this.on('restore', () => { this._lastShownAt = Date.now(); });
 
             // Inject CSS for Linux scrollbar styling
             this.webContents.on('did-finish-load', () => {
@@ -316,8 +338,7 @@ Module.prototype.require = function(id) {
             });
 
             // In 'hidden' mode, suppress Alt toggle by re-hiding
-            // on every show event. In 'auto' mode, let
-            // autoHideMenuBar handle the toggle natively.
+            // on every show event.
             if (MENU_BAR_MODE === 'hidden') {
               this.on('show', () => {
                 this.setMenuBarVisibility(false);
@@ -338,6 +359,44 @@ Module.prototype.require = function(id) {
                     e.preventDefault();
                     this.hide();
                   }
+                });
+              } else {
+                // CLAUDE_QUIT_ON_CLOSE=1: the bundled main-process code
+                // (`.vite/build/index.js`) installs its own main-window
+                // close listener that hardcodes `preventDefault()` +
+                // `hide()` on every non-Windows platform, with no
+                // setting or env var to disable it. The wrapper's
+                // opt-out above only removes *this* file's hide handler;
+                // the bundled one still runs, so without this branch
+                // closing the window still leaves the app alive in the
+                // tray (in-app schedulers / single-instance lock /
+                // deleted-inode electron after dpkg upgrade-in-place).
+                //
+                // Approach: register a close listener that runs *first*
+                // and calls app.quit(). app.quit() emits 'before-quit'
+                // synchronously, which sets the bundled code's
+                // "quitting in progress" flag. The bundled close
+                // listener then runs second, sees that flag, and
+                // short-circuits via its own `if (lC()) return;` guard
+                // — so it never calls preventDefault, and the window
+                // closes normally during the quit flow. We ride the
+                // upstream's own quit-safety contract instead of trying
+                // to remove or splice their listener; robust to any
+                // refactor that preserves the quit-in-progress short-
+                // circuit (which they need for Ctrl+Q / tray Quit /
+                // SIGTERM anyway). Fixes: #623
+                this.on('close', () => { result.app.quit(); });
+              }
+
+              // Alt-keyup menu bar toggle state (auto mode). Tracked
+              // per-window so chords spanning multiple webContents
+              // (main window + BrowserView) share one state machine.
+              // Reset on blur to avoid stale state after Alt-Tab.
+              if (MENU_BAR_MODE === 'auto') {
+                this._altMenuTracker = { pressed: false, chorded: false };
+                this.on('blur', () => {
+                  this._altMenuTracker.pressed = false;
+                  this._altMenuTracker.chorded = false;
                 });
               }
 
@@ -504,11 +563,32 @@ Module.prototype.require = function(id) {
 
       // Intercept Menu.setApplicationMenu to hide menu bar on Linux.
       // In 'hidden' mode, force-hide after every menu update.
-      // In 'auto' mode, only hide initially (autoHideMenuBar handles
-      // Alt toggle — re-hiding here would break that). Fixes: #321
+      // In 'auto' mode, only hide initially (the before-input-event
+      // Alt-keyup handler manages toggle). Fixes: #321
       const originalSetAppMenu = OriginalMenu.setApplicationMenu.bind(OriginalMenu);
       patchedSetApplicationMenu = function(menu) {
         console.log('[Frame Fix] Intercepting setApplicationMenu');
+
+        // Append a hidden View submenu with F11 fullscreen toggle.
+        // Upstream has fullscreenable:true and persists isFullScreen
+        // across sessions; macOS provides the green traffic-light
+        // button; Linux has no equivalent OS-level trigger, so we
+        // register an accelerator here. visible:false keeps it out
+        // of the menu bar — it only registers the keybinding.
+        // Fixes: #580
+        if (process.platform === 'linux' && menu) {
+          const { MenuItem, Menu: MenuClass } = electronModule;
+          menu.append(new MenuItem({
+            label: 'View',
+            visible: false,
+            submenu: MenuClass.buildFromTemplate([{
+              label: 'Toggle Full Screen',
+              role: 'togglefullscreen',
+              accelerator: 'F11',
+            }]),
+          }));
+        }
+
         originalSetAppMenu(menu);
         if (process.platform === 'linux' && MENU_BAR_MODE === 'hidden') {
           for (const win of PatchedBrowserWindow.getAllWindows()) {
@@ -561,13 +641,105 @@ Module.prototype.require = function(id) {
             });
           }
           wc.on('before-input-event', (event, input) => {
-            if (input.type !== 'keyDown') return;
-            if (!input.control) return;
-            if (input.alt || input.shift || input.meta) return;
-            if (input.key !== 'q' && input.key !== 'Q') return;
-            event.preventDefault();
-            result.app.quit();
+            if (input.type === 'keyDown' && input.control
+              && !input.alt && !input.shift && !input.meta
+              && (input.key === 'q' || input.key === 'Q')) {
+              event.preventDefault();
+              result.app.quit();
+              return;
+            }
+
+            // Alt-keyup menu bar toggle (auto mode). Chromium's
+            // autoHideMenuBar fires on keydown, grabbing focus
+            // before Alt+Shift (language switch) or Alt+F4 can
+            // complete. We suppress the keydown and toggle on
+            // keyup only when Alt was released without any
+            // intervening key. Fixes: #630
+            if (MENU_BAR_MODE !== 'auto') return;
+            const owner = result.BrowserWindow.fromWebContents(wc);
+            if (!owner || owner.isDestroyed()) return;
+            const tracker = owner._altMenuTracker;
+            if (!tracker) return;
+
+            if (input.key === 'Alt') {
+              if (input.type === 'keyDown') {
+                tracker.pressed = true;
+                tracker.chorded = false;
+                event.preventDefault();
+              } else if (input.type === 'keyUp') {
+                if (tracker.pressed && !tracker.chorded) {
+                  owner.setMenuBarVisibility(!owner.isMenuBarVisible());
+                }
+                tracker.pressed = false;
+              }
+            } else if (tracker.pressed && input.type === 'keyDown') {
+              tracker.chorded = true;
+            }
           });
+
+          // Suppress redundant webContents.focus() calls that would
+          // re-trigger Chromium's X11Window::Activate() and send a
+          // _NET_ACTIVE_WINDOW client message — EWMH defines that as
+          // focus-AND-raise, so under sloppy / focus-follows-mouse
+          // WMs (Cinnamon Muffin, Mutter, i3 with focus_follows_mouse)
+          // every BrowserWindow 'focus' event causes a raise on
+          // mouse-enter, undoing the user's "no auto-raise" config.
+          // Tracks electron/electron#38184.
+          //
+          // Hooked at app.on('web-contents-created') so child views
+          // are covered too — the BrowserWindow-class wrap only
+          // touches the window's own webContents, but the upstream
+          // call site lives on a child WebContentsView (the claude.ai
+          // host view) whose webContents is a different object.
+          //
+          // Skip is gated on the *owning toplevel*'s isFocused(),
+          // not the webContents'. wc.isFocused() returns false on a
+          // freshly-attached child view even when the window is
+          // focused — that's exactly the state on every sloppy hover,
+          // so guarding on it would never skip and the raise loop
+          // would continue.
+          //
+          // The post-'show' grace window is the second half of the
+          // story. Electron's isFocused() returns stale-true after
+          // hide() on Cinnamon/KDE/Wayland (the same trap that
+          // drives the KDE-only patches in scripts/patches/
+          // quick-window.sh); a tray-restore hide → show then sees
+          // ownerFocused=true and a naive guard would skip, leaving
+          // the window visible-but-inert (no _NET_ACTIVE_WINDOW, no
+          // keyboard focus until the user clicks). Within
+          // SHOW_GRACE_MS of a 'show' event we pass through
+          // unconditionally, so the post-restore activation actually
+          // lands. 1000 ms covers the synchronous show → focus
+          // sequence with margin for slow restores.
+          //
+          // Trade-off: in sloppy mode, hover-induced focus events
+          // are SKIPped, which suppresses both the X11 raise (the
+          // bug we're fixing) and the renderer-focus direction that
+          // webContents.focus() would also do. Net effect: hover
+          // gives WM focus (frame highlight) but renderer focus
+          // doesn't follow until the user clicks. The Electron API
+          // doesn't expose a renderer-focus-only path on X11, so
+          // this is the best available trade against the constant-
+          // raise UX. Genuine activations (no recent show + not
+          // already focused) still go through end-to-end.
+          //
+          // Known: deferred setTimeout focus sites (e.g. find-bar
+          // dismiss) outside the grace window may lose renderer-focus
+          // direction on keyboard dismissal. See #416 review.
+          //
+          // Fixes: #416
+          const SHOW_GRACE_MS = 1000;
+          const origFocus = wc.focus.bind(wc);
+          wc.focus = (...args) => {
+            const owner = result.BrowserWindow.fromWebContents(wc);
+            if (!owner || owner.isDestroyed()) return origFocus(...args);
+            if (!owner.isFocused()) return origFocus(...args);
+            const shownAt = owner._lastShownAt || 0;
+            if (Date.now() - shownAt < SHOW_GRACE_MS) {
+              return origFocus(...args);
+            }
+            return;
+          };
         });
       }
 
@@ -621,9 +793,8 @@ Module.prototype.require = function(id) {
           return { exec: 'claude-desktop', icon: 'claude-desktop' };
         };
 
-        // StartupWMClass matches the value set by scripts/packaging/{deb,rpm}.sh
-        // so DEs group an autostarted window with user-launched instances
-        // under the same taskbar / dock entry.
+        // StartupWMClass matches --class= and desktopName so DEs group
+        // an autostarted window with user-launched instances.
         const buildAutostartContent = () => {
           const { exec, icon } = resolveAutostartTarget();
           return `[Desktop Entry]
@@ -631,7 +802,7 @@ Type=Application
 Name=Claude
 Exec=${exec}
 Icon=${icon}
-StartupWMClass=Claude
+StartupWMClass=claude-desktop
 Terminal=false
 X-GNOME-Autostart-enabled=true
 `;
@@ -764,6 +935,39 @@ X-GNOME-Autostart-enabled=true
             get(menuTarget, menuProp) {
               if (menuProp === 'setApplicationMenu') return patchedSetApplicationMenu;
               return Reflect.get(menuTarget, menuProp);
+            }
+          });
+        }
+        if (prop === 'powerSaveBlocker' && process.platform === 'linux') {
+          // Wrap powerSaveBlocker with logging and optional suppression
+          const originalPSB = target.powerSaveBlocker;
+          return new Proxy(originalPSB, {
+            get(psTarget, psProp) {
+              if (psProp === 'start') {
+                return function(type) {
+                  if (!KEEP_AWAKE) {
+                    console.log(`[Power] powerSaveBlocker.start('${type}') suppressed (CLAUDE_KEEP_AWAKE=0)`);
+                    return -1;
+                  }
+                  const id = psTarget.start(type);
+                  console.log(`[Power] powerSaveBlocker.start('${type}') -> id=${id}`);
+                  return id;
+                };
+              }
+              if (psProp === 'stop') {
+                return function(id) {
+                  if (id < 0) return;
+                  console.log(`[Power] powerSaveBlocker.stop(${id})`);
+                  return psTarget.stop(id);
+                };
+              }
+              if (psProp === 'isStarted') {
+                return function(id) {
+                  if (id < 0) return false;
+                  return psTarget.isStarted(id);
+                };
+              }
+              return Reflect.get(psTarget, psProp);
             }
           });
         }

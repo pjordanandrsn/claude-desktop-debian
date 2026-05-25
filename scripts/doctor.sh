@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 #===============================================================================
 # Doctor Diagnostics
 #
@@ -481,7 +482,7 @@ _doctor_check_filename_limit() {
 			'Workaround: move ~/.config/Claude onto a separate' \
 			'LUKS-encrypted ext4 volume (NAME_MAX=255) and symlink it'
 		_info \
-			'back. See docs/TROUBLESHOOTING.md "Cowork: ENAMETOOLONG' \
+			'back. See docs/troubleshooting.md "Cowork: ENAMETOOLONG' \
 			'on encrypted home (eCryptfs)" for the worked steps.'
 	fi
 }
@@ -552,6 +553,28 @@ _doctor_check_recent_crashes() {
 			'https://github.com/aaddrick/claude-desktop-debian/issues/583'
 	elif ((count > 0)); then
 		_info "Recent Electron crashes: $count in last 7 days$footnote"
+	fi
+}
+
+# Report the active Chromium password-store backend.
+#
+# Calls _detect_password_store() (defined in launcher-common.sh, which
+# sources this file) to surface what keyring Electron will use for
+# safeStorage / cookie encryption. 'basic' is valid but means tokens
+# rely on filesystem permissions alone, so we note it for visibility.
+# Never fails — basic is an intentional fallback, not an error.
+_doctor_check_password_store() {
+	local store
+	store=$(_detect_password_store)
+	_pass "Password store: $store"
+	if [[ $store == 'basic' ]]; then
+		_info \
+			'  → using fixed-key fallback;' \
+			'tokens are protected by filesystem permissions only'
+	fi
+	if [[ -n ${CLAUDE_PASSWORD_STORE:-} ]]; then
+		_info \
+			"  → overridden by CLAUDE_PASSWORD_STORE=${CLAUDE_PASSWORD_STORE}"
 	fi
 }
 
@@ -654,6 +677,14 @@ run_doctor() {
 		_info 'Titlebar style: hybrid (default, native frame + in-app topbar)'
 	fi
 
+	# -- Keep awake override --
+	local keep_awake="${CLAUDE_KEEP_AWAKE:-}"
+	if [[ $keep_awake == '0' ]]; then
+		_pass 'Keep awake: suppressed (CLAUDE_KEEP_AWAKE=0)'
+	elif [[ -n $keep_awake ]]; then
+		_info "Keep awake: CLAUDE_KEEP_AWAKE=$keep_awake (default behavior)"
+	fi
+
 	# -- Electron binary --
 	# Version is read from the file next to the binary rather than
 	# launching Electron, which can hang (see #371).
@@ -726,6 +757,9 @@ run_doctor() {
 	else
 		_pass 'SingletonLock: no lock file (OK)'
 	fi
+
+	# -- Password store --
+	_doctor_check_password_store
 
 	# -- MCP config --
 	local mcp_config="$config_dir/claude_desktop_config.json"
@@ -862,7 +896,7 @@ print(len(servers))
 					'  Common on Ubuntu 24.04+ where AppArmor sets' \
 					'apparmor_restrict_unprivileged_userns=1'
 				_info \
-					'  by default. See docs/TROUBLESHOOTING.md' \
+					'  by default. See docs/troubleshooting.md' \
 					'"Cowork on Ubuntu 24.04"'
 				_info '  for the AppArmor profile fix.'
 			fi
