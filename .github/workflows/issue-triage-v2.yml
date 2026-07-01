@@ -51,6 +51,10 @@ jobs:
   # ──────────────────────────────────────────────────────────────────────
   gate:
     name: Gate
+    # Upstream-only: triage needs ANTHROPIC_API_KEY, which forks
+    # don't have. Downstream stages need this gate, so guarding it
+    # skips the whole pipeline everywhere but the canonical repo.
+    if: github.repository == 'aaddrick/claude-desktop-debian'
     runs-on: ubuntu-latest
     outputs:
       should_triage: ${{ steps.check.outputs.should_triage }}

@@ -21,6 +21,10 @@ permissions:
 
 jobs:
   ping:
+    # Upstream-only: monitors the production Worker chain and opens
+    # tracking issues on failure. Skip on forks so they don't get
+    # spurious heartbeat-failure issues.
+    if: github.repository == 'aaddrick/claude-desktop-debian'
     strategy:
       fail-fast: false
       matrix:

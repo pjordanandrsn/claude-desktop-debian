@@ -18,8 +18,8 @@
 # The first 9 markers correspond to the smoke-test set defined in
 # issue #559 (PR #555 retrofit, deliverable D6). Additional markers
 # cover other critical patches (e.g., .asar guards).
-vmclient-log-gate	process\.platform==="linux"\)\s*\?\s*"vmClient \(TypeScript\)"	(F||process.platform==="linux")?"vmClient (TypeScript)"
-vm-assignment-linux-gate	process\.platform==="linux"\)\?\(?[\w$]+=\{vm:[\w$]+\}	(F||process.platform==="linux")?N={vm:M}
+vmclient-log-gate	process\.platform==="linux"\)\s*\?\s*("vmClient \(TypeScript\)"|[\w$]+\|\|[\w$]+\|\|\([\w$]+\.info\("\[VM\] Loading %s module\.\.\.","vmClient \(TypeScript\)")	(F||process.platform==="linux")?tU||KsA||(Ke.info("[VM] Loading %s module...","vmClient (TypeScript)")
+vm-assignment-linux-gate	process\.platform==="linux"\)\?(\(?[\w$]+=\{vm:[\w$]+\}|[\w$]+\|\|.{0,200}?=\{vm:[\w$]+\})	(F||process.platform==="linux")?tU||KsA||(Ke.info("m"),KsA=(async()=>{try{return tU={vm:Foi}
 unix-socket-path	process\.platform==="linux"\?\(process\.env\.XDG_RUNTIME_DIR\|\|"/tmp"\)\+"/cowork-vm-service\.sock"	process.platform==="linux"?(process.env.XDG_RUNTIME_DIR||"/tmp")+"/cowork-vm-service.sock"
 empty-linux-bundle-manifest	linux:\{x64:\[\],arm64:\[\]\}	,linux:{x64:[],arm64:[]}
 getdownloadstatus-suppression	getDownloadStatus\(\)\{return process\.platform==="linux"\?[\w$]+\.NotDownloaded	getDownloadStatus(){return process.platform==="linux"?Z.NotDownloaded

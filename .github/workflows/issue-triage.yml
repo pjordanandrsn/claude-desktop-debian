@@ -35,9 +35,12 @@ jobs:
   gate:
     name: Gate Check
     runs-on: ubuntu-latest
+    # Repo check is upstream-only: triage needs ANTHROPIC_API_KEY,
+    # which forks don't have. Guarding the gate skips the pipeline.
     if: >-
-      github.event_name == 'workflow_dispatch'
-      || github.event.sender.login != 'github-actions[bot]'
+      github.repository == 'aaddrick/claude-desktop-debian'
+      && (github.event_name == 'workflow_dispatch'
+      || github.event.sender.login != 'github-actions[bot]')
     outputs:
       should_triage: ${{ steps.check.outputs.should_triage }}
       issue_number: ${{ steps.check.outputs.issue_number }}
