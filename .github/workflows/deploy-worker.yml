@@ -14,6 +14,9 @@ permissions:
 
 jobs:
   deploy:
+    # Upstream-only: deploys the production Worker via Cloudflare
+    # secrets forks don't have. Skip everywhere but the canonical repo.
+    if: github.repository == 'aaddrick/claude-desktop-debian'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4

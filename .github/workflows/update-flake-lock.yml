@@ -13,6 +13,9 @@ concurrency:
 
 jobs:
   update-flake-lock:
+    # Upstream-only: pushes to main via GH_PAT, which forks don't
+    # have. Skip everywhere but the canonical repo.
+    if: github.repository == 'aaddrick/claude-desktop-debian'
     runs-on: ubuntu-latest
 
     steps:
