@@ -24,15 +24,19 @@ detect_architecture() {
 
 	case "$raw_arch" in
 		x86_64)
-			claude_download_url='https://downloads.claude.ai/releases/win32/x64/1.14271.0/Claude-c8f4d811b076f6d3bb0a320ac9da463cd82a6a11.exe'
-			claude_exe_sha256='3abbb805d677479aaf2d320ef6856094b2f84eef9219715c539f23ea89034554'
+			claude_download_url='https://downloads.claude.ai/releases/win32/x64/1.17377.1/Claude-2b3ab429b13f2c904d7552b7ca82a0d2a22af52f.exe'
+			# TODO: sha256 of the 1.17377.1 x64 installer. Compute on a
+			# network-unrestricted host; the build fails until it is set.
+			claude_exe_sha256='TODO-fill-amd64-sha256'
 			architecture='amd64'
 			claude_exe_filename='Claude-Setup-x64.exe'
 			echo 'Configured for amd64 (x86_64) build.'
 			;;
 		aarch64)
-			claude_download_url='https://downloads.claude.ai/releases/win32/arm64/1.14271.0/Claude-c8f4d811b076f6d3bb0a320ac9da463cd82a6a11.exe'
-			claude_exe_sha256='1e5cc0edef8155bf84042f38afccdd17c4c986e0835d17f32a988cf830eca553'
+			claude_download_url='https://downloads.claude.ai/releases/win32/arm64/1.17377.1/Claude-2b3ab429b13f2c904d7552b7ca82a0d2a22af52f.exe'
+			# TODO: sha256 of the 1.17377.1 arm64 installer. Compute on a
+			# network-unrestricted host; the build fails until it is set.
+			claude_exe_sha256='TODO-fill-arm64-sha256'
 			architecture='arm64'
 			claude_exe_filename='Claude-Setup-arm64.exe'
 			echo 'Configured for arm64 (aarch64) build.'
