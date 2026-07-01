@@ -1,0 +1,39 @@
+name: Debug Anchors (temporary)
+
+# TEMPORARY — dumps 1.17377.1 minified-source context around the
+# three patch anchors that went MISS in the verify-patches step, so
+# the new anchor shapes can be derived. The build sandbox driving
+# this PR can't reach downloads.claude.ai; CI runners can. Removed
+# together with scripts/debug-dump-anchors.js once diagnosed.
+
+on:
+  push:
+    branches:
+      - claude/fable-seats-setup-ld2nsn
+
+permissions:
+  contents: read
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Download and extract installer
+        run: |
+          url=$(grep -oP "claude_download_url='\K[^']+" \
+            scripts/setup/detect-host.sh | head -1)
+          echo "Installer URL: $url"
+          wget -q -O claude.exe "$url"
+          sha256sum claude.exe
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq p7zip-full > /dev/null
+          7z x -y claude.exe -oexe > /dev/null
+          nupkg=$(find exe -name 'AnthropicClaude-*.nupkg' | head -1)
+          7z x -y "$nupkg" -onupkg > /dev/null
+          npx --yes @electron/asar extract \
+            nupkg/lib/net45/resources/app.asar app-x
+
+      - name: Dump anchor contexts
+        run: node scripts/debug-dump-anchors.js app-x/.vite/build/index.js
