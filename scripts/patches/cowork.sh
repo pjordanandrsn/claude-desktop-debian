@@ -345,7 +345,40 @@ if (vmClientLogMatch) {
             ' Cowork startup (PR #555 failure mode)');
     }
 } else {
-    console.log('  WARNING: Could not find vmClient variable for module loading patch');
+    // 1.17377.1+ unified loader shape. The win32/darwin ternary pair
+    // that 2a/2b anchored on is gone; upstream now has a single gated
+    // loader where one call-site gate covers both the log line and
+    // the {vm:...} assignment:
+    //   async function NAME(){return GATE()?CACHE||PROMISE||(
+    //       LOG.info("[VM] Loading %s module...","vmClient (TypeScript)"),
+    //       PROMISE=(async()=>{try{return CACHE={vm:MOD},...
+    // Patch the gate: GATE()? -> (GATE()||linux)? which covers the
+    // intent of both 2a and 2b in one edit.
+    const vmStrIdx = code.indexOf('"vmClient (TypeScript)"');
+    if (vmStrIdx === -1) {
+        console.log('  WARNING: Could not find vmClient variable for module loading patch');
+    } else {
+        const gateStart = Math.max(0, vmStrIdx - 250);
+        const gateRegion = code.substring(gateStart, vmStrIdx);
+        if (gateRegion.includes('||process.platform==="linux")?')) {
+            console.log('  Unified VM loader gate already applied (2a+2b)');
+        } else {
+            const gateMatch = gateRegion.match(/return ([\w$]+)\(([\w$]*)\)\?/);
+            if (gateMatch) {
+                const gateAbs = gateStart + gateRegion.lastIndexOf(gateMatch[0]);
+                const patched = 'return(' + gateMatch[1] + '(' + gateMatch[2] +
+                    ')||process.platform==="linux")?';
+                code = code.substring(0, gateAbs) + patched +
+                    code.substring(gateAbs + gateMatch[0].length);
+                console.log('  Patched unified VM loader gate for Linux (2a+2b)');
+                patchCount++;
+            } else {
+                console.log('  WARNING: Could not find anchor for unified VM' +
+                    ' loader gate (2a/2b) — half-patched asar will fail' +
+                    ' Cowork startup');
+            }
+        }
+    }
 }
 
 // ============================================================
@@ -509,7 +542,33 @@ if (serviceErrorIdx !== -1) {
                 code.substring(enoentAbsIdx + enoentStr.length);
             console.log('  Expanded ENOENT check to include ECONNREFUSED on Linux');
         } else {
-            console.log('  WARNING: Could not find ENOENT check for ECONNREFUSED expansion');
+            // 1.17377.1+: upstream guards the .code access, so the plain
+            // VAR.code==="ENOENT" shape is gone:
+            //   const n=(r instanceof Error&&"code"in r?r.code:void 0)
+            //       ==="ENOENT"||!1;
+            // Inject the Linux ECONNREFUSED alternative right after the
+            // ENOENT comparison. The injected bytes keep the old
+            // VAR.code==="ECONNREFUSED" shape so the idempotency check
+            // above and the econnrefused-on-linux marker stay valid.
+            // (VAR is always an Error here — every rejection path in
+            // the request helper passes one — matching the risk profile
+            // the pre-1.17377.1 patch shipped with.)
+            const guardedRe =
+                /\(([\w$]+) instanceof Error&&"code"in \1\?\1\.code:void 0\)==="ENOENT"/;
+            const gm = beforeRegion.match(guardedRe);
+            if (gm) {
+                const errVar = gm[1];
+                const absIdx = searchStart + beforeRegion.indexOf(gm[0]) +
+                    gm[0].length;
+                const inject = '||process.platform==="linux"&&' +
+                    errVar + '.code==="ECONNREFUSED"';
+                code = code.substring(0, absIdx) + inject +
+                    code.substring(absIdx);
+                console.log('  Expanded guarded ENOENT check to include' +
+                    ' ECONNREFUSED on Linux');
+            } else {
+                console.log('  WARNING: Could not find ENOENT check for ECONNREFUSED expansion');
+            }
         }
     }
 
@@ -521,9 +580,16 @@ if (serviceErrorIdx !== -1) {
         const newServiceErrorIdx = code.lastIndexOf(serviceErrorStr);
         const searchEnd = Math.min(code.length, newServiceErrorIdx + 300);
         const searchRegion = code.substring(newServiceErrorIdx, searchEnd);
-        const retryMatch = searchRegion.match(
+        let retryMatch = searchRegion.match(
             /await new Promise\(([\w$]+)=>\s*setTimeout\(\1,\s*([\w$]+)\)\)/
         );
+        if (!retryMatch) {
+            // 1.17377.1+: the inline Promise/setTimeout delay became a
+            // helper call — `await dn(Moi)` — right after the throw.
+            // First `await IDENT(IDENT)` in the region is the delay;
+            // the only other await nearby takes no argument.
+            retryMatch = searchRegion.match(/await [\w$]+\([\w$]+\)/);
+        }
         if (retryMatch) {
             const retryStr = retryMatch[0];
             const retryOffset = searchRegion.indexOf(retryStr);
