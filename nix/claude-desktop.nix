@@ -21,15 +21,11 @@ let
   srcs = {
     x86_64-linux = fetchurl {
       url = "https://downloads.claude.ai/releases/win32/x64/1.17377.1/Claude-2b3ab429b13f2c904d7552b7ca82a0d2a22af52f.exe";
-      # TODO: real SRI hash of the 1.17377.1 x64 installer. This is
-      # lib.fakeHash; `nix build` prints the correct hash on mismatch.
-      hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+      hash = "sha256-coztseUmWBohOGVMqiVp6S6jUqOgoy3i4C6LtQiaq1I=";
     };
     aarch64-linux = fetchurl {
       url = "https://downloads.claude.ai/releases/win32/arm64/1.17377.1/Claude-2b3ab429b13f2c904d7552b7ca82a0d2a22af52f.exe";
-      # TODO: real SRI hash of the 1.17377.1 arm64 installer. This is
-      # lib.fakeHash; `nix build` prints the correct hash on mismatch.
-      hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+      hash = "sha256-WI8GMV/g62y5pAJ5m+a60N5Uy+5qJJ6xiPCSEmNZW9A=";
     };
   };
 
