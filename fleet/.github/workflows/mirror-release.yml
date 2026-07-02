@@ -1,0 +1,53 @@
+name: Mirror Release
+
+# Mirrors the latest release (packages included) from the public
+# build fork into this private repository, so fleet machines can pull
+# updates with a token scoped to this repo alone. Runs on a schedule
+# and on demand; exits quietly when the newest release is already
+# mirrored.
+
+on:
+  schedule:
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  SOURCE_REPO: pjordanandrsn/claude-desktop-debian
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mirror latest source release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          src_tag=$(gh release view --repo "$SOURCE_REPO" \
+            --json tagName -q .tagName 2>/dev/null) || {
+            echo "No release published on $SOURCE_REPO yet; nothing to do."
+            exit 0
+          }
+          echo "Latest source release: $src_tag"
+
+          if gh release view "$src_tag" \
+              --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Already mirrored: $src_tag"
+            exit 0
+          fi
+
+          mkdir download && cd download
+          gh release download "$src_tag" --repo "$SOURCE_REPO" \
+            --pattern '*.deb' \
+            --pattern '*.AppImage' \
+            --pattern '*.rpm'
+          ls -la
+
+          gh release create "$src_tag" --repo "$GITHUB_REPOSITORY" \
+            --title "$src_tag" \
+            --notes "Mirrored from ${SOURCE_REPO} ${src_tag}." \
+            ./*
+          count=$(find . -maxdepth 1 -type f | wc -l)
+          echo "Mirrored $src_tag with $count assets."
