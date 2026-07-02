@@ -37,6 +37,19 @@ main() {
 		return 1
 	fi
 
+	# Claude Desktop installs into a Debian-style userland. A NAS
+	# host shell (QNAP QTS, Synology DSM) has neither apt nor dpkg —
+	# run this inside the container or VM that hosts the app instead.
+	if ! command -v apt-get > /dev/null 2>&1 ||
+		! command -v dpkg-deb > /dev/null 2>&1; then
+		err 'apt-get/dpkg not found: this looks like a NAS host'
+		err 'shell, not the Debian environment Claude Desktop is'
+		err 'installed in. Run this script inside that container or'
+		err 'VM (e.g. docker exec <container> ... on Container'
+		err 'Station).'
+		return 1
+	fi
+
 	local arch
 	arch=$(detect_arch) || return 1
 
@@ -46,19 +59,26 @@ main() {
 		return 1
 	}
 
+	# BusyBox-safe extraction (no grep -P): isolate the download-url
+	# fields, keep the one whose asset name matches this arch's .deb,
+	# then strip down to the bare URL between the value quotes.
 	local deb_url
 	deb_url=$(printf '%s\n' "$json" |
-		grep -oP '"browser_download_url":\s*"\K[^"]+' |
-		grep -m1 -- "_${arch}\.deb\$") || {
+		grep -oE '"browser_download_url" *: *"[^"]*"' |
+		grep -- "_${arch}\.deb\"" |
+		head -n 1 |
+		cut -d'"' -f4)
+	if [[ -z $deb_url ]]; then
 		err "no .deb asset for ${arch} in the latest release"
 		return 1
-	}
+	fi
 
 	# Debian version is embedded in the asset name:
 	# claude-desktop_<claudeVer>-<repoVer>_<arch>.deb
-	local new_version current_version
-	new_version=$(basename "$deb_url" |
-		grep -oP 'claude-desktop_\K[^_]+')
+	local new_version current_version asset_file
+	asset_file=$(basename "$deb_url")
+	new_version=${asset_file#claude-desktop_}
+	new_version=${new_version%%_*}
 	current_version=$(dpkg-query -W -f='${Version}' \
 		claude-desktop 2>/dev/null)
 	if [[ -n $current_version && $current_version == "$new_version" ]]; then

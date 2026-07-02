@@ -57,6 +57,19 @@ main() {
 		return 1
 	fi
 
+	# Claude Desktop installs into a Debian-style userland. A NAS
+	# host shell (QNAP QTS, Synology DSM) has neither apt nor dpkg —
+	# run this inside the container or VM that hosts the app instead.
+	if ! command -v apt-get > /dev/null 2>&1 ||
+		! command -v dpkg-deb > /dev/null 2>&1; then
+		err 'apt-get/dpkg not found: this looks like a NAS host'
+		err 'shell, not the Debian environment Claude Desktop is'
+		err 'installed in. Run this script inside that container or'
+		err 'VM (e.g. docker exec <container> ... on Container'
+		err 'Station).'
+		return 1
+	fi
+
 	command -v jq > /dev/null 2>&1 || {
 		err 'jq is required: apt-get install -y jq'
 		return 1
@@ -92,8 +105,8 @@ main() {
 	# Debian version is embedded in the asset name:
 	# claude-desktop_<claudeVer>-<repoVer>_<arch>.deb
 	local new_version current_version
-	new_version=$(printf '%s' "$asset_name" |
-		grep -oP 'claude-desktop_\K[^_]+')
+	new_version=${asset_name#claude-desktop_}
+	new_version=${new_version%%_*}
 	current_version=$(dpkg-query -W -f='${Version}' \
 		claude-desktop 2>/dev/null)
 	if [[ -n $current_version && $current_version == "$new_version" ]]; then
